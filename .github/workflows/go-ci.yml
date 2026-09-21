@@ -1,0 +1,99 @@
+# The gate. Nothing deploys without this passing.
+#
+# CI and deploy must not share a trigger: both on `push` is a race, not a gate,
+# and a commit whose tests fail deploys anyway. A deploy workflow triggers on
+# `workflow_run` after this one succeeds.
+name: Go CI
+
+on:
+  workflow_call:
+    inputs:
+      go-version:
+        description: Go toolchain version.
+        type: string
+        default: "1.27"
+      postgres-image:
+        description: >-
+          Image for the test database. Pin it to the digest production runs
+          where that matters: with a floating tag, the same commit can pass one
+          day and fail the next, and the difference between test and production
+          is where the expensive bugs live.
+        type: string
+        default: "postgres:17-alpine"
+      test-db-env:
+        description: >-
+          Name of the environment variable to set to the test database URL.
+          Leave empty for a project with no database; the service still starts,
+          which costs a few seconds and keeps this workflow to one shape.
+        type: string
+        default: ""
+      working-directory:
+        type: string
+        default: "."
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: ${{ inputs.postgres-image }}
+        env:
+          POSTGRES_USER: ci
+          POSTGRES_PASSWORD: ci
+          POSTGRES_DB: ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ci -d ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: ${{ inputs.go-version }}
+          cache-dependency-path: ${{ inputs.working-directory }}/go.sum
+
+      # The formatter is not a style preference here; it is the thing that
+      # keeps diffs about behaviour. Failing with the file list is enough --
+      # the fix is `gofmt -w .` and does not need explaining twice.
+      - name: gofmt
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "These files are not gofmt'd:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Point the tests at the service database
+        if: inputs.test-db-env != ''
+        run: |
+          echo "${{ inputs.test-db-env }}=postgres://ci:ci@127.0.0.1:5432/ci?sslmode=disable" >> "$GITHUB_ENV"
+
+      # -race because the bugs this catches are the ones that appear under
+      # load, in production, and never on a laptop.
+      - name: go test
+        run: go test -race -count=1 ./...
+
+      # Last, and deliberately after the tests: a build failure is obvious,
+      # while a test failure is the interesting one, and whichever runs first
+      # is the one people read.
+      - name: go build
+        run: go build ./...
