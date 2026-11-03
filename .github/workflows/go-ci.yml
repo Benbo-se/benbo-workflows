@@ -30,6 +30,14 @@ on:
       working-directory:
         type: string
         default: "."
+      test-timeout:
+        description: >-
+          How long `go test` may run per package before it is killed, as Go
+          writes a duration. 10m is Go's own default, so leaving this out
+          changes nothing. A suite that needs longer under -race says so here
+          rather than by failing with a panic that reads like a broken test.
+        type: string
+        default: "10m"
 
 permissions:
   contents: read
@@ -90,7 +98,9 @@ jobs:
       # -race because the bugs this catches are the ones that appear under
       # load, in production, and never on a laptop.
       - name: go test
-        run: go test -race -count=1 ./...
+        run: go test -race -count=1 -timeout "$TEST_TIMEOUT" ./...
+        env:
+          TEST_TIMEOUT: ${{ inputs.test-timeout }}
 
       # Last, and deliberately after the tests: a build failure is obvious,
       # while a test failure is the interesting one, and whichever runs first

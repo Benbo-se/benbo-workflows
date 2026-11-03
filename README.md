@@ -45,7 +45,7 @@ for. `v1` moves only for changes that cannot break a caller.
 
 ## Callers
 
-- [`RedaEkengren/RedaSMS`](https://github.com/RedaEkengren/RedaSMS)
+- [`RedaEkengren/FreeSMS`](https://github.com/RedaEkengren/FreeSMS) (formerly RedaSMS)
 
 `Benbo-se/ArgusmetricsSH` carries its own copies and stays that way until this
 pattern has proven itself on one project. One at a time, when the worst case is
